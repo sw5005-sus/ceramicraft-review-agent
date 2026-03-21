@@ -1,58 +1,51 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod"; // SDK uses Zod for input validation
 import { reviewModerationGraph } from "../graph/index.js";
 
-// 创建 MCP Server 实例
-const server = new Server(
-  { name: "ecommerce-review-graph", version: "1.0.0" },
-  { capabilities: { tools: {} } }
-);
+// Create MCP Server instance
+const server = new McpServer({ 
+  name: "ecommerce-review-graph", 
+  version: "1.0.0" 
+});
 
-// 1. 告诉外界（比如 Python 主节点），我这里提供一个叫 "moderate_review" 的工具
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [{
-    name: "moderate_review",
+server.registerTool(
+  "moderate_review",
+  {
+    title: "Moderate review",
     description: "Orchestrates a multi-agent workflow to moderate e-commerce reviews.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        text: { type: "string" },
-        rating: { type: "number" },
-        imageUrl: { type: "string" }
-      },
-      required: ["text"]
-    }
-  }]
-}));
+    // 使用 Zod 的 object schema 作为 inputSchema（推荐）
+    // Use a Zod object schema for input (recommended)
+    inputSchema: z.object({
+      text: z.string().describe("Review text"),
+      rating: z.number().optional().describe("Numerical rating (if provided)"),
+      imageUrl: z.string().optional().describe("URL of uploaded image (if any)")
+    })
+  },
+  async (args) => {
+    // registerTool 回调接收解析后的 args（由 Zod 校验过）
+    const { text, rating, imageUrl } = args as { text: string; rating?: number; imageUrl?: string };
+    const payload = { text, rating, imageUrl };
+    console.log("Received moderation task from host:", payload);
 
-// 2. 处理外界的调用请求
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  if (request.params.name === "moderate_review") {
-    const payload = request.params.arguments;
-    console.log("接收到来自主节点的审查任务:", payload);
-
-    // 调用你写好的 LangGraph
-    const finalState = await reviewModerationGraph.invoke({
-        reviewPayload: payload
-    });
+    // Invoke the LangGraph workflow
+    const finalState = await reviewModerationGraph.invoke({ reviewPayload: payload });
 
     // 将 Graph 的最终状态作为工具的返回值，丢回给 Python 端
     return {
-      content: [{ 
-          type: "text", 
-          text: JSON.stringify({
-              status: finalState.finalStatus,
-              flag: finalState.autoFlag,
-              logs: finalState.reasoningLogs
-          }, null, 2) 
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          status: finalState.finalStatus,
+          flag: finalState.autoFlag,
+          logs: finalState.reasoningLogs
+        }, null, 2)
       }]
     };
   }
-  throw new Error("Tool not found");
-});
+);
 
-// 3. 启动基于标准输入输出的传输层 (跨语言通信利器)
+// 启动基于标准输入输出的传输层 (跨语言通信利器)
 export async function startMcpServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

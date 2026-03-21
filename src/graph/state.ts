@@ -1,17 +1,17 @@
 import { Annotation } from "@langchain/langgraph";
 
-// 定义贯穿整个 Graph 的数据结构
+// Defines the shared data structure used through the Graph
 export const ReviewGraphState = Annotation.Root({
-  // 1. 输入数据 (Python 主节点传进来的)
+  // 1. Input data (provided by the host/driver process)
   reviewPayload: Annotation<any>(), 
   
-  // 2. 过程数据 (各个 Worker 写回来的推理日志)
+  // 2. Process data (inference logs written by workers)
   reasoningLogs: Annotation<string[]>({
-    reducer: (curr, update) => curr.concat(update), // 每次有新日志就追加进去
+    reducer: (curr, update) => curr.concat(update), // append new log entries
     default: () => [],
   }),
 
-  // 3. 最终输出数据 (Supervisor 拍板决定的)
+  // 3. Final output (decided by the Supervisor)
   finalStatus: Annotation<"approved" | "rejected" | "pending_review">(),
   autoFlag: Annotation<string | null>(),
   inferredScore: Annotation<number | null>(),

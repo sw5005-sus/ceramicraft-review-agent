@@ -1,8 +1,8 @@
 // textWorker.ts
-// 文本处理 Worker 的示例实现
+// Example implementation for a text-processing worker
 export class TextWorker {
   async process(text: string) {
-    // 在此处加入具体的文本处理逻辑
+    // Insert concrete text processing logic here
     return { tokens: text.split(/\s+/) };
   }
 }

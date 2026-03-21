@@ -1,5 +1,5 @@
 // supervisor.ts
-// 各个 Worker 的主管（示例实现）
+// Supervisor for workers (example implementation)
 export class Supervisor {
   start() {
     console.log('Supervisor started');
