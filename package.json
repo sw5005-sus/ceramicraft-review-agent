@@ -1,16 +1,18 @@
 {
-  "name": "ecommerce-review-graph",
+  "name": "ecommerce-comment-moderate",
   "version": "1.0.0",
   "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "tsc --noEmit",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/eventsource": "^1.1.15",
     "@types/node": "^25.5.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
@@ -23,6 +25,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "axios": "^1.13.6",
     "dotenv": "^17.3.1",
+    "eventsource": "^2.0.2",
     "zod": "^4.3.6"
   }
 }

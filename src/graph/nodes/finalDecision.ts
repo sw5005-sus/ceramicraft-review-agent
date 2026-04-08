@@ -1,61 +1,150 @@
-import { z } from "zod";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { ReviewGraphState } from "../state.js";
-import { createLLM } from "../../utils/llmFactory.js";
-
-const llm = createLLM("kimi-k2-0711-preview");
+import { updateReviewStatusHttp } from "../../mcp/tools-http.js";
 
 export const finalDecisionNode = async (state: typeof ReviewGraphState.State) => {
-    console.log("Final Decision: Synthesizing worker reports and making final verdict...");
+    console.log("Final Decision: Analyzing all evidence and making final verdict...");
     
-    // 1. Extract all evidence gathered by the Supervisor and parallel Workers
-    const { reasoningLogs, autoFlag, afterSalesDraft, inferredScore } = state;
-
-    // 2. Define the exact JSON structure for the final verdict
-    const finalDecisionSchema = z.object({
-        finalStatus: z.enum(["approved", "rejected", "pending_review"]).describe("The ultimate outcome of the moderation workflow."),
-        summaryReason: z.string().describe("A concise 1-sentence explanation synthesizing why this final status was chosen based on the evidence.")
-    });
-
-    const structuredLlm = llm.withStructuredOutput(finalDecisionSchema, {
-        method: "functionCalling",     
-    });
-
-    // 3. Strictly separate System Rules from the dynamic User Data
-    const promptTemplate = ChatPromptTemplate.fromMessages([
-        ["system", `You are the Chief Review Moderator for an e-commerce platform.
-Your job is to make the final moderation decision based ONLY on the logs and flags provided by your specialized worker agents.
-
-Strict Rules for Final Status:
-1. If the 'Auto Flag' is "supervisor_rejected", or ANY worker explicitly indicates the content is spam, high risk, NSFW, illegal, or toxic -> return "rejected".
-2. If there is an 'Auto Flag' of "mismatch" OR "After-Sales Triggered" is "Yes" (meaning the user needs customer service) -> return "pending_review".
-3. If all workers approved their checks and no critical flags were raised -> return "approved".
-
-Do not hallucinate or guess. Base your decision entirely on the provided evidence.`],
+    // 1. Extract ALL evidence fields from workers
+    const { 
+        reasoningLogs, 
+        autoFlag,           // "supervisor_rejected" if Supervisor flagged it
+        reviewPayload,      // Original review data
         
-        ["user", `Worker Reasoning Logs:
-{logs}
+        // Text Worker Evidence
+        isProductRelevant,
+        isSafe,
+        isMismatch,
+        requiresAfterSales,
+        afterSalesDraft,
+        
+        // Vision Worker Evidence
+        isImageSafe,
+        isImageRelevant,
+        
+        // Imputation Worker Evidence
+        inferredScore
+    } = state;
+    
+    // Prepare stars parameter for backend (same as inferredScore)
+    const stars = inferredScore;
 
-Current System Flags:
-- Auto Flag: {flag}
-- Inferred Score: {score}
-- After-Sales Triggered: {afterSales}`]
-    ]);
+    // 2. Apply business rules:
+    // - REJECTED: if harmful/unsafe content (highest priority)
+    // - HIDDEN: if quality issues (off-topic, rating/text mismatch)
+    // - APPROVED: all other cases (including after-sales requests for admin handling)
+    
+    let finalStatus: "approved" | "hidden" | "rejected";
+    let summaryReason: string;
 
-    // 4. Format the dynamic data into the User Prompt
-    const formattedPrompt = await promptTemplate.invoke({
-        logs: reasoningLogs.length > 0 ? reasoningLogs.join("\n") : "No worker logs available.",
-        flag: autoFlag || "None",
-        score: inferredScore?.toString() ?? "N/A",
-        afterSales: afterSalesDraft ? "Yes" : "No"
-    });
+    // Rule 1: REJECT if Supervisor flagged as harmful/spam
+    if (autoFlag === "supervisor_rejected") {
+        finalStatus = "rejected";
+        summaryReason = "Supervisor detected spam or high-risk content";
+    }
+    // Rule 2: REJECT if text contains unsafe/harmful content
+    else if (isSafe === false) {
+        finalStatus = "rejected";
+        summaryReason = "Review contains unsafe or inappropriate content";
+    }
+    // Rule 3: REJECT if any image is unsafe
+    else if (isImageSafe === false) {
+        finalStatus = "rejected";
+        summaryReason = "Review images contain unsafe or inappropriate content";
+    }
+    // Rule 4: HIDDEN if review is not about the product (quality issue, not safety)
+    else if (isProductRelevant === false) {
+        finalStatus = "hidden";
+        summaryReason = "Review is not about the product - flagged for manual review";
+    }
+    // Rule 5: HIDDEN if rating/text mismatch (quality issue)
+    else if (isMismatch === true) {
+        finalStatus = "hidden";
+        summaryReason = "Review has rating/sentiment mismatch - flagged for manual review";
+    }
+    // Rule 6: APPROVED if all other evidence passes
+    // (includes cases with after-sales or image not relevant, as admin can handle)
+    else {
+        finalStatus = "approved";
+        summaryReason = "Review passed all quality checks";
+    }
 
-    // 5. Invoke Kimi to make the final judgment
-    const result = await structuredLlm.invoke(formattedPrompt);
+    // 3. Build autoFlag based on detected evidence
+    // Supervisor can set "supervisor_rejected", but we can also add other flags for quality issues
+    let finalAutoFlag = autoFlag; // Keep supervisor's flag if present
+    
+    // Add quality issue flags
+    const flags: string[] = [];
+    if (!autoFlag || autoFlag !== "supervisor_rejected") {
+        // Only add additional flags if not already rejected by supervisor
+        if (isMismatch === true) {
+            flags.push("mismatch");
+        }
+        if (isProductRelevant === false) {
+            flags.push("off_topic");
+        }
+        if (requiresAfterSales === true) {
+            flags.push("after_sales");
+        }
+        
+        // Combine flags if multiple issues found
+        if (flags.length > 0) {
+            finalAutoFlag = flags.join("|");
+        }
+    }
 
-    // 6. Update the State with the final authoritative status
+    // 4. Prepare parameters for updateReviewStatus call
+    // Support both field name conventions (id from real API, reviewId from test)
+    const reviewId = reviewPayload?.id || reviewPayload?.reviewId;
+    const isHarmful = autoFlag === "supervisor_rejected" || isSafe === false || isImageSafe === false;
+
+    // 6. Build final logs
+    const logs = [
+        `[Final Decision] Decision Rules Applied`,
+        `[Final Decision] Status: ${finalStatus}`,
+        `[Final Decision] Reason: ${summaryReason}`
+    ];
+    
+    // Add context for hidden reviews
+    if (finalStatus === "hidden") {
+        logs.push(`[Final Decision] Reason: Rating (${reviewPayload?.rating}) does not match sentiment`);
+    }
+    
+    // Add after-sales context if present
+    if (requiresAfterSales && afterSalesDraft) {
+        logs.push(`[Final Decision] After-Sales Issue: ${afterSalesDraft.summary}`);
+    }
+    
+    // Add auto flag info if present
+    if (finalAutoFlag) {
+        logs.push(`[Final Decision] Auto Flags: ${finalAutoFlag}`);
+    }
+
+    // 7. Persist decision to backend (if reviewId provided)
+    if (reviewId) {
+        try {
+            console.log(`[Final Decision] Persisting decision to backend...`);
+            await updateReviewStatusHttp(
+                reviewId,
+                finalStatus,
+                isMismatch ?? undefined,
+                isHarmful,
+                finalAutoFlag ?? undefined,
+                stars ?? undefined
+            );
+            logs.push(`[Final Decision] ✓ Decision persisted (reviewId: ${reviewId})`);
+        } catch (error: any) {
+            logs.push(`[Final Decision] ⚠️ Failed to persist: ${error.message}`);
+        }
+    }
+
     return {
-        finalStatus: result.finalStatus,
-        reasoningLogs: [`[Final Decision] Verdict: ${result.finalStatus}. Justification: ${result.summaryReason}`]
+        finalStatus,
+        reasoningLogs: logs,
+        afterSalesDraft: requiresAfterSales ? afterSalesDraft : undefined,
+        // Include evidence fields for test visibility
+        autoFlag: finalAutoFlag ?? undefined,
+        isMismatch: isMismatch ?? undefined,
+        isHarmful: isHarmful,
+        inferredScore: inferredScore ?? undefined
     };
 };

@@ -29,28 +29,11 @@ async function fetchImageToBase64(url: string): Promise<string> {
 }
 
 export const visionWorkerNode = async (state: typeof ReviewGraphState.State) => {
-    console.log("Vision Worker: analyzing image...");
-    const { imageUrl } = state.reviewPayload;
+    console.log("Vision Worker: analyzing images...");
+    const { imageUrls } = state.reviewPayload;
 
-    if (!imageUrl) {
-        return { reasoningLogs: ["[Vision Worker] No image provided."] };
-    }
-
-    let finalImageData = imageUrl;
-    
-    // If it looks like a public HTTP/S URL, fetch it and convert to base64
-    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-        try {
-            finalImageData = await fetchImageToBase64(imageUrl);
-        } catch (error: any) {
-            // If fetching fails (e.g., DNS error, timeout), append log and let the flow continue
-            return { 
-                reasoningLogs: [`[Vision Worker] ERROR: Cannot analyze image. Reason: ${error.message}`] 
-            };
-        }
-    } else if (!imageUrl.startsWith("data:image/")) {
-        // Basic validation: if not a URL, must be a data URI already
-        return { reasoningLogs: ["[Vision Worker] ERROR: Invalid image input format."] };
+    if (!imageUrls || imageUrls.length === 0) {
+        return { reasoningLogs: ["[Vision Worker] No images provided."] };
     }
 
     // 1. Define the Schema
@@ -79,29 +62,68 @@ Your JSON MUST EXACTLY match the following structure:
   "reasoning": "string (Detailed explanation)"
 }}`;
 
-    // 4. The Magic: Constructing a Multi-modal Message
-    const messages = [
-        new SystemMessage(systemPrompt),
-        new HumanMessage({
-            content: [
-                {
-                    type: "text",
-                    text: "Please analyze this image and return the required JSON."
-                },
-                {
-                    type: "image_url",
-                    image_url: {
-                        url: finalImageData 
-                    }
-                }
-            ]
-        })
-    ];
+    // Process each image and collect evidence
+    let allImagesSafe = true;
+    let allImagesRelevant = true;
+    const imageLogs: string[] = [];
 
-    // 5. Invoke the LLM with the message array
-    const result = await structuredVisionLlm.invoke(messages);
+    for (let i = 0; i < imageUrls.length; i++) {
+        const imageUrl = imageUrls[i]!; // Non-null assertion: we know it exists in the array
+        let finalImageData = imageUrl;
+
+        // If it looks like a public HTTP/S URL, fetch it and convert to base64
+        if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+            try {
+                finalImageData = await fetchImageToBase64(imageUrl);
+            } catch (error: any) {
+                // If fetching fails, log and skip this image
+                imageLogs.push(`[Vision Worker] Image ${i + 1}: ERROR - ${error.message}`);
+                allImagesSafe = false;
+                continue;
+            }
+        } else if (!imageUrl.startsWith("data:image/")) {
+            // Basic validation: if not a URL, must be a data URI already
+            imageLogs.push(`[Vision Worker] Image ${i + 1}: ERROR - Invalid image input format`);
+            allImagesSafe = false;
+            continue;
+        }
+
+        // 4. Constructing a Multi-modal Message for this image
+        const messages = [
+            new SystemMessage(systemPrompt),
+            new HumanMessage({
+                content: [
+                    {
+                        type: "text",
+                        text: "Please analyze this image and return the required JSON."
+                    },
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: finalImageData 
+                        }
+                    }
+                ]
+            })
+        ];
+
+        // 5. Invoke the LLM for this image
+        try {
+            const result = await structuredVisionLlm.invoke(messages);
+            imageLogs.push(`[Vision Worker] Image ${i + 1}: Safe=${result.isSafe}, Relevant=${result.isRelevant}. ${result.reasoning}`);
+            
+            // Update aggregate evidence: if ANY image is unsafe or irrelevant, flag it
+            if (!result.isSafe) allImagesSafe = false;
+            if (!result.isRelevant) allImagesRelevant = false;
+        } catch (error: any) {
+            imageLogs.push(`[Vision Worker] Image ${i + 1}: Analysis error - ${error.message}`);
+            allImagesSafe = false;
+        }
+    }
 
     return {
-        reasoningLogs: [`[Vision Worker] Safe: ${result.isSafe}, Relevant: ${result.isRelevant}. Reason: ${result.reasoning}`]
+        reasoningLogs: imageLogs,
+        isImageSafe: allImagesSafe,
+        isImageRelevant: allImagesRelevant
     };
 };

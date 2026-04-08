@@ -5,7 +5,7 @@ import { reviewModerationGraph } from "../graph/index.js";
 
 // Create MCP Server instance
 const server = new McpServer({ 
-  name: "ecommerce-review-graph", 
+  name: "ecommerce-comment-moderate", 
   version: "1.0.0" 
 });
 
@@ -25,7 +25,9 @@ server.registerTool(
   async (args) => {
     // registerTool 回调接收解析后的 args（由 Zod 校验过）
     const { text, rating, imageUrl } = args as { text: string; rating?: number; imageUrl?: string };
-    const payload = { text, rating, imageUrl };
+    const payload: any = { text };
+    if (rating !== undefined) payload.rating = rating;
+    if (imageUrl !== undefined) payload.imageUrl = imageUrl;
     console.log("Received moderation task from host:", payload);
 
     // Invoke the LangGraph workflow

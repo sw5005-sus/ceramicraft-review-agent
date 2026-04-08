@@ -20,11 +20,13 @@ const routeAfterSupervisor = (state: typeof ReviewGraphState.State): string[] =>
     const nextNodes = ["textWorker"]; 
     
     // Conditionally fan-out based on payload presence
-    if (reviewPayload?.imageUrl) {
+    if (reviewPayload?.imageUrls && reviewPayload.imageUrls.length > 0) {
         nextNodes.push("visionWorker");
     }
     
-    if (reviewPayload?.rating === undefined || reviewPayload?.rating === null) {
+    // Support both stars and rating field names
+    const rating = reviewPayload?.stars ?? reviewPayload?.rating;
+    if (rating === undefined || rating === null) {
         nextNodes.push("imputationWorker");
     }
     

@@ -7,7 +7,17 @@ const llm = createLLM("kimi-k2-0711-preview");
 
 export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
     console.log("Supervisor: Conducting semantic triage and routing...");
-    const { text, imageUrl, rating } = state.reviewPayload;
+    
+    // Support both field name conventions (content from real API, text from test)
+    const text = state.reviewPayload?.content || state.reviewPayload?.text || "";
+    
+    if (!text || text.trim() === "") {
+        console.log("Supervisor: Empty or missing review text. Treating as potential spam.");
+        return {
+            reasoningLogs: [`[Supervisor Triage] Category: spam. Action: short_circuit. Reason: Empty or missing review content.`],
+            autoFlag: "supervisor_rejected"
+        };
+    }
 
     // 1. 定义大模型的输出结构（分诊结果）
     const routingSchema = z.object({

@@ -24,12 +24,12 @@ async function runTests() {
 
 
     console.log("\n======================================================");
-    console.log("=== TEST 3: Text + Image + No Rating (Should Fan-out) ===");
+    console.log("=== TEST 3: Text + Images + No Rating (Should Fan-out) ===");
     console.log("======================================================");
     const result3 = await reviewModerationGraph.invoke({
         reviewPayload: { 
             text: "The box arrived slightly damaged, but the item inside works fine so far. I need customer service to send me a new cable though.", 
-            imageUrl: "https://img2.baidu.com/it/u=935365276,378312474&fm=253&app=138&f=JPEG?w=800&h=1067" 
+            imageUrls: ["https://img2.baidu.com/it/u=935365276,378312474&fm=253&app=138&f=JPEG?w=800&h=1067"] 
         }
     });
     console.log("\n[TEST 3 OUTPUT]:");
