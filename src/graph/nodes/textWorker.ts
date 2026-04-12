@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ReviewGraphState } from "../state.js";
 import { createLLM } from "../../utils/llmFactory.js";
 import { getProductHttp } from "../../mcp/tools-http.js";
+import { STANDARD_TEXT_WORKER_PROMPT } from "../../prompts/catalog.js";
 
 const llm = createLLM("kimi-k2-0711-preview");
 
@@ -70,25 +71,10 @@ export const textWorkerNode = async (state: typeof ReviewGraphState.State) => {
     });
 
     // 2. Updated Prompt
-    const prompt = `
-You are an expert e-commerce review moderator for a ceramic products platform.
-Analyze the following user review text and the provided star rating (if any).
-
-Review Text: "${text}"
-Star Rating: ${rating !== undefined ? rating : "None provided"}${productContext}
-
-Your tasks:
-1. Relevance: Determine if this review is actually about the ceramic product (not food, kids, or off-topic).
-   - If the review talks about eating/food/kids rather than the product quality, it's NOT relevant.
-   - Example: "my kids loves eating it" - This is about food/kids, NOT the ceramic product.
-2. Safety: Flag any toxic, abusive, or spam content.
-3. Logic Match: Determine if the text sentiment contradicts the numeric rating.
-4. After-Sales Intent: Identify if the user needs customer service. 
-   CRITICAL: If 'requiresAfterSales' is true, you MUST also generate:
-   - 'issueSummary': A 1-sentence summary of the problem.
-   - 'suggestedSolution': What our internal team should do.
-   - 'customerServiceScript': A complete, polite email draft addressing the issue.
-`;
+    const prompt = String(STANDARD_TEXT_WORKER_PROMPT.template)
+        .replace("{{text}}", text)
+        .replace("{{rating}}", String(rating !== undefined ? rating : "None provided"))
+        .replace("{{product_context}}", productContext);
 
     // 3. Invoke LLM
     const result = await structuredLlm.invoke(prompt);
@@ -105,6 +91,7 @@ Your tasks:
     // 5. Update State
     return {
         reasoningLogs: [`[Text Worker] Relevant: ${result.isProductRelevant}, Safe: ${result.isSafe}, Mismatch: ${result.isMismatch}, Support: ${result.requiresAfterSales}. Reason: ${result.reasoning}`],
+        executedPrompts: [{ name: STANDARD_TEXT_WORKER_PROMPT.name }],
         isProductRelevant: result.isProductRelevant,
         isSafe: result.isSafe,
         isMismatch: result.isMismatch,

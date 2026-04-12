@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ReviewGraphState } from "../state.js";
 import { createLLM } from "../../utils/llmFactory.js";
+import { STANDARD_IMPUTATION_WORKER_PROMPT } from "../../prompts/catalog.js";
 
 const llm = createLLM("kimi-k2-0711-preview");
 
@@ -17,25 +18,13 @@ export const imputationWorkerNode = async (state: typeof ReviewGraphState.State)
         method: "functionCalling",     
     });
 
-    const prompt = `
-You are a customer sentiment analysis expert. 
-The user forgot to leave a numeric star rating (1 to 5) for their order. 
-
-Based strictly on the sentiment and descriptive words in the following review text, infer the most logical star rating.
-Review Text: "${text}"
-
-Rules:
-- 5: Extremely satisfied, highly recommend, perfect.
-- 4: Very good, minor flaws.
-- 3: Average, neutral, okay.
-- 2: Disappointed, below expectations.
-- 1: Angry, completely broken, terrible experience.
-`;
+    const prompt = String(STANDARD_IMPUTATION_WORKER_PROMPT.template).replace("{{text}}", text ?? "");
 
     const result = await structuredImputationLlm.invoke(prompt);
 
     return { 
         reasoningLogs: [`[Imputation Worker] Inferred Score: ${result.inferredScore}. Reason: ${result.reasoning}`],
+        executedPrompts: [{ name: STANDARD_IMPUTATION_WORKER_PROMPT.name }],
         inferredScore: result.inferredScore
     };
 };

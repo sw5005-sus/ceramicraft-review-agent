@@ -4,6 +4,7 @@ import { createLLM } from "../../utils/llmFactory.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { ReviewGraphState } from "../state.js";
 import axios from "axios";
+import { STANDARD_VISION_WORKER_PROMPT } from "../../prompts/catalog.js";
 
 const llm = createLLM("moonshot-v1-8k-vision-preview", 1);
 
@@ -33,7 +34,10 @@ export const visionWorkerNode = async (state: typeof ReviewGraphState.State) => 
     const { imageUrls } = state.reviewPayload;
 
     if (!imageUrls || imageUrls.length === 0) {
-        return { reasoningLogs: ["[Vision Worker] No images provided."] };
+        return {
+            reasoningLogs: ["[Vision Worker] No images provided."],
+            executedPrompts: [{ name: STANDARD_VISION_WORKER_PROMPT.name }]
+        };
     }
 
     // 1. Define the Schema
@@ -49,18 +53,9 @@ export const visionWorkerNode = async (state: typeof ReviewGraphState.State) => 
     });
 
     // 3. System Prompt with strict JSON injection
-    const systemPrompt = `You are an expert e-commerce image moderator.
-Your tasks:
-1. Determine if the image contains any unsafe or inappropriate content (NSFW, violence, illegal items).
-2. Determine if the image is generally relevant to a shopping/product review context.
-
-CRITICAL INSTRUCTION: You MUST output your response in valid JSON format.
-Your JSON MUST EXACTLY match the following structure:
-{{
-  "isSafe": boolean,
-  "isRelevant": boolean,
-  "reasoning": "string (Detailed explanation)"
-}}`;
+        const visionPromptTemplate = STANDARD_VISION_WORKER_PROMPT.template as Array<{ role: "system" | "user" | "assistant"; content: string }>;
+        const systemPrompt = visionPromptTemplate[0]?.content ?? "";
+        const userPrompt = visionPromptTemplate[1]?.content ?? "Please analyze this image and return the required JSON.";
 
     // Process each image and collect evidence
     let allImagesSafe = true;
@@ -95,7 +90,7 @@ Your JSON MUST EXACTLY match the following structure:
                 content: [
                     {
                         type: "text",
-                        text: "Please analyze this image and return the required JSON."
+                        text: userPrompt
                     },
                     {
                         type: "image_url",
@@ -123,6 +118,7 @@ Your JSON MUST EXACTLY match the following structure:
 
     return {
         reasoningLogs: imageLogs,
+        executedPrompts: [{ name: STANDARD_VISION_WORKER_PROMPT.name }],
         isImageSafe: allImagesSafe,
         isImageRelevant: allImagesRelevant
     };

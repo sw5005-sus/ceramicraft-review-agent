@@ -1,5 +1,12 @@
 import { ReviewGraphState } from "../state.js";
 import { updateReviewStatusHttp } from "../../mcp/tools-http.js";
+import {
+    logModerationRun,
+    logModerationTrace,
+    type PromptVersionRef,
+    registerSystemPrompts,
+    resolvePromptVersionRefs,
+} from "../../utils/mlflowClient.js";
 
 export const finalDecisionNode = async (state: typeof ReviewGraphState.State) => {
     console.log("Final Decision: Analyzing all evidence and making final verdict...");
@@ -22,7 +29,13 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
         isImageRelevant,
         
         // Imputation Worker Evidence
-        inferredScore
+        inferredScore,
+
+        // Timing
+        graphStartTime,
+
+        // Prompt lineage
+        executedPrompts
     } = state;
     
     // Prepare stars parameter for backend (same as inferredScore)
@@ -136,6 +149,46 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
             logs.push(`[Final Decision] ⚠️ Failed to persist: ${error.message}`);
         }
     }
+
+    let linkedPrompts: PromptVersionRef[] = [];
+    try {
+        await registerSystemPrompts();
+        linkedPrompts = await resolvePromptVersionRefs(executedPrompts ?? []);
+    } catch (error: any) {
+        logs.push(`[Final Decision] MLflow prompt lineage resolution skipped: ${error.message}`);
+    }
+
+    // 8. Push run data to MLflow (non-blocking on failure)
+    await logModerationRun({
+        reviewId: reviewId ?? undefined,
+        productId: reviewPayload?.product_id ?? reviewPayload?.productId,
+        isSafe,
+        isProductRelevant,
+        isMismatch,
+        isImageSafe,
+        isImageRelevant,
+        inferredScore,
+        finalStatus,
+        autoFlag: finalAutoFlag ?? null,
+        isHarmful,
+        linkedPrompts,
+        reasoningLogs: logs,
+        latencyMs: Date.now() - graphStartTime,
+    });
+
+    // 9. Push GenAI Trace (visible in Traces tab)
+    await logModerationTrace({
+        reviewId:      reviewId ?? undefined,
+        reviewContent: reviewPayload?.content ?? reviewPayload?.text,
+        productId:     reviewPayload?.product_id ?? reviewPayload?.productId,
+        finalStatus,
+        autoFlag:      finalAutoFlag ?? null,
+        isHarmful,
+        linkedPrompts,
+        reasoningLogs: logs,
+        startTimeMs:   graphStartTime,
+        latencyMs:     Date.now() - graphStartTime,
+    });
 
     return {
         finalStatus,

@@ -34,6 +34,11 @@ export const ReviewGraphState = Annotation.Root({
     default: () => [],
   }),
 
+  executedPrompts: Annotation<Array<{ name: string }>>({
+    reducer: (curr, update) => curr.concat(update),
+    default: () => [],
+  }),
+
   // 3. EVIDENCE COLLECTION (collected by Workers, not decisions)
   // These are factual findings, not verdicts
   isProductRelevant: Annotation<boolean | null>(),  // Evidence: Is review about the product? (TextWorker)
@@ -54,7 +59,13 @@ export const ReviewGraphState = Annotation.Root({
     script: string;
   } | null>(),
 
-  // 5. FINAL VERDICT (set by Final Decision node only - do NOT set elsewhere)
+  // 5. Timing: set automatically when the graph state is first created
+  graphStartTime: Annotation<number>({
+    value: (_: number, update: number) => update,
+    default: () => Date.now(),
+  }),
+
+  // 6. FINAL VERDICT (set by Final Decision node only - do NOT set elsewhere)
   finalStatus: Annotation<"approved" | "hidden" | "rejected">(),
   autoFlag: Annotation<string | null>(),
   isHarmful: Annotation<boolean | undefined>(),      // Computed during final decision

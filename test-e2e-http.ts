@@ -1,12 +1,12 @@
 /**
- * End-to-End Integration Test: HTTP MCP + LangGraph Workflow
- * 
+ * End-to-End Integration Test: HTTP MCP + LangGraph Workflow + MLflow
+ *
  * This test:
- * 1. Connects to HTTP MCP server (http://localhost:8080)
- * 2. Runs review moderation workflow
- * 3. Tests complete evidence collection → decision flow
+ * 1. (Optional) Connects to HTTP MCP server (http://localhost:8080)
+ * 2. Runs review moderation workflow — MLflow logging runs automatically inside finalDecision
+ * 3. Explicitly verifies MLflow connectivity by logging a synthetic probe run
  * 4. Shows final updateReviewStatus parameters
- * 
+ *
  * Usage:
  *   npx tsx test-e2e-http.ts
  */
@@ -14,30 +14,56 @@
 import "dotenv/config";
 import { initializeHttpMcpClient } from "./src/mcp/http-client.js";
 import { reviewModerationGraph } from "./src/graph/index.js";
+import { logModerationRun, registerSystemPrompts } from "./src/utils/mlflowClient.js";
 
 async function testE2EWithHttp() {
     console.log("\n========================================");
-    console.log("🚀 E2E Test: HTTP MCP + LangGraph");
+    console.log("🚀 E2E Test: HTTP MCP + LangGraph + MLflow");
     console.log("========================================\n");
 
     try {
-        // Step 1: Initialize HTTP MCP client
-        console.log("📡 Step 1: Initializing HTTP MCP client...");
+        // ── Step 0: Verify MLflow connectivity ──────────────────────────────
+        console.log("📊 Step 0: Verifying MLflow connectivity...");
+        console.log(`   MLFLOW_TRACKING_URI = ${process.env.MLFLOW_TRACKING_URI ?? "(not set)"}\n`);
+        try {
+            await logModerationRun({
+                reviewId: "PROBE-000",
+                finalStatus: "approved",
+                isSafe: true,
+                isProductRelevant: true,
+                isMismatch: false,
+                latencyMs: 0,
+                reasoningLogs: ["[Probe] MLflow connectivity test from test-e2e-http.ts"],
+            });
+            console.log("   ✅ MLflow probe run logged successfully!\n");
+        } catch (err: any) {
+            console.warn(`   ⚠️  MLflow probe failed (non-fatal): ${err.message}\n`);
+        }
+
+        // ── Step 0b: Register system prompts to Prompts tab ─────────────────
+        console.log("📝 Step 0b: Registering system prompts to MLflow Prompts tab...");
+        try {
+            await registerSystemPrompts();
+            console.log("   ✅ System prompts registered!\n");
+        } catch (err: any) {
+            console.warn(`   ⚠️  Prompt registration failed (non-fatal): ${err.message}\n`);
+        }
+
+        // ── Step 1: Initialize HTTP MCP client (optional) ───────────────────
+        console.log("📡 Step 1: Initializing HTTP MCP client (optional)...");
         console.log("   Target: http://localhost:8080/mcp\n");
-        
+
         try {
             await initializeHttpMcpClient("http://localhost:8080/mcp");
             console.log("   ✅ HTTP MCP client ready!\n");
         } catch (error: any) {
-            console.error("   ❌ Failed to connect to MCP server!");
-            console.error(`   Error: ${error.message}`);
-            console.error("\n   Make sure the MCP server is running:");
-            console.error("   PS> uv run python -m ceramicraft_mcp_server.serve");
-            process.exit(1);
+            console.warn("   ⚠️  MCP server not available — continuing without it.");
+            console.warn(`   (${error.message})`);
+            console.warn("   Product context fetch will be skipped inside textWorker.\n");
         }
 
-        // Step 2: Run workflow tests
-        console.log("🔄 Step 2: Running workflow tests...\n");
+        // ── Step 2: Run workflow tests (MLflow logging fires inside finalDecision) ─
+        console.log("🔄 Step 2: Running workflow tests (MLflow logged automatically)...\n");
 
         const testCases = [
             {
@@ -94,6 +120,7 @@ async function testE2EWithHttp() {
                 });
 
                 console.log(`   ✅ Final Status: "${result.finalStatus}"`);
+                console.log(`   📊 MLflow run logged inside finalDecision (check ${process.env.MLFLOW_TRACKING_URI ?? "MLflow UI"})`);
                 
                 // Show the parameters that would be sent to updateReviewStatus
                 console.log(`\n   📤 Tool Call Parameters (updateReviewStatus):`);
