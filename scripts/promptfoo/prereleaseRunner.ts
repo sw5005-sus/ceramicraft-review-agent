@@ -46,17 +46,24 @@ async function main(): Promise<void> {
     throw new Error("promptfoo runner requires vars.reviewPayload in the test case context");
   }
 
-  const result = await reviewModerationGraph.invoke({
-    reviewPayload,
-  });
-
-  // Output pure JSON result to stdout (not through logger)
-  // This is critical for Promptfoo to parse results correctly
-  process.stdout.write(JSON.stringify(result));
+  try {
+    const result = await reviewModerationGraph.invoke({
+      reviewPayload,
+    });
+    // Output pure JSON result to stdout (not through logger)
+    // This is critical for Promptfoo to parse results correctly
+    process.stdout.write(JSON.stringify(result));
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : '';
+    process.stderr.write(`\n❌ [FATAL ERROR] 脚本运行崩溃!\n`);
+    process.stderr.write(`errorMessage: ${errorMessage}\n`);
+    if (errorStack) {
+      process.stderr.write(`errorStack: \n${errorStack}\n`);
+    }
+    
+    process.exit(1);
+  }
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`[promptfoo:error] ${message}\n`);
-  process.exit(1);
-});
+main();
