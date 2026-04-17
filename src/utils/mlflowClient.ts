@@ -1,6 +1,10 @@
 /**
  * MLflow REST API client for logging comment moderation runs, traces, and prompts.
  * (Migrated to native fetch to bypass VPN TUN network resets)
+ * 
+ * Supports test mode via RUN_ENV=test environment variable:
+ * - When RUN_ENV='test', MLflow calls are mocked and return immediately
+ * - This prevents test data pollution in production MLflow instances
  */
 
 import crypto from "crypto";
@@ -9,6 +13,7 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ChatOpenAI } from "@langchain/openai";
 import { ALL_PROMPT_DEFINITIONS, type PromptDefinition } from "../prompts/catalog.js";
 import type { SpanRecord } from "../graph/state.js";
+import { createLogger } from "./logger.js";
 
 const s3 = new S3Client({ region: process.env.AWS_DEFAULT_REGION ?? "ap-southeast-1" });
 const S3_BUCKET = "ceramicraft-mlflow";
@@ -22,6 +27,10 @@ const PROMPT_ASSOCIATED_RUN_IDS_TAG_KEY = "mlflow.prompt.associatedRunIds";
 const PROMPT_TEXT_TAG_KEY = "mlflow.prompt.text";
 const PROMPT_TYPE_TAG_KEY = "_mlflow_prompt_type";
 const PROMPT_MODEL_CONFIG_TAG_KEY = "_mlflow_prompt_model_config";
+
+const logger = createLogger("MLflow");
+// Skip MLflow logging only in test mode (to avoid polluting test data)
+const shouldSkipMLflow = process.env.RUN_ENV === "test";
 
 let cachedExperimentId: string | null = null;
 let promptsRegistered = false;
@@ -78,8 +87,15 @@ export interface ModerationRunData {
 }
 
 export async function logModerationRun(data: ModerationRunData): Promise<string | undefined> {
+  // Test mode: Skip actual MLflow logging
+  if (shouldSkipMLflow) {
+    const mockRunId = `mock-run-${Date.now()}`;
+    logger.debug(`Skipped MLflow run log in test mode (mock run_id=${mockRunId})`);
+    return mockRunId;
+  }
+
   if (!MLFLOW_BASE) {
-    console.warn("[MLflow] MLFLOW_TRACKING_URI is not set - skipping run log.");
+    logger.warn("MLFLOW_TRACKING_URI is not set - skipping run log.");
     return undefined;
   }
 
@@ -141,7 +157,7 @@ export async function logModerationRun(data: ModerationRunData): Promise<string 
     console.log(`[MLflow] Run logged successfully (run_id=${runId})`);
     return runId;
   } catch (error: any) {
-    console.warn(`[MLflow] Failed to log run: ${error.message}`);
+    logger.warn(`Failed to log run: ${error.message}`);
     return undefined;
   }
 }
@@ -261,6 +277,12 @@ async function generateThinkingSummary(
 }
 
 export async function logModerationTrace(data: ModerationTraceData): Promise<void> {
+  // Test mode: Skip actual MLflow logging
+  if (shouldSkipMLflow) {
+    logger.debug(`Skipped MLflow trace log in test mode`);
+    return;
+  }
+
   if (!MLFLOW_BASE) return;
 
   try {

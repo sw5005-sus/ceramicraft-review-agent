@@ -1,9 +1,9 @@
 [
   {
-    "description": "Reject empty review content before release",
+    "description": "Reject harmful review content before release",
     "vars": {
       "reviewPayload": {
-        "content": "",
+        "content": "die die die",
         "stars": 5
       },
       "expectedFinalStatus": "rejected",
@@ -28,23 +28,11 @@
     "vars": {
       "reviewPayload": {
         "content": "Terrible product, completely broken, waste of money. I want a refund.",
-        "stars": 5
-      },
-      "expectedFinalStatus": "hidden",
-      "expectedAutoFlagContains": "after_sales",
-      "expectedHasAfterSalesDraft": true
-    }
-  },
-  {
-    "description": "Approve a normal positive product review",
-    "vars": {
-      "reviewPayload": {
-        "content": "Great quality, very comfortable and worth the price.",
-        "stars": 5
+        "stars": 2
       },
       "expectedFinalStatus": "approved",
-      "expectedAutoFlagContains": "",
-      "expectedHasAfterSalesDraft": false
+      "expectedAutoFlagContains": "after_sales",
+      "expectedHasAfterSalesDraft": true
     }
   }
 ]

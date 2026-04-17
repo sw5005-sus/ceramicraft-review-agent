@@ -1,6 +1,10 @@
 import { Resend } from 'resend';
+import { createLogger } from './logger.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+const logger = createLogger('Email');
+// Skip email sending only in test mode (to avoid polluting inboxes with test data)
+const shouldSkipEmails = process.env.RUN_ENV === 'test';
 
 export interface EmailOptions {
     to: string | string[];
@@ -11,16 +15,27 @@ export interface EmailOptions {
 
 /**
  * Send email using Resend API (HTTPS - 完美穿透 VPN)
+ * Supports test mode via RUN_ENV=test
  * @param options Email options
  * @returns Result with messageId or error
  */
 export async function sendEmail(options: EmailOptions) {
+    // Test mode: Skip actual email sending
+    if (shouldSkipEmails) {
+        const mockMessageId = `mock-msg-${Date.now()}`;
+        logger.debug(`Skipped Resend API call in test mode (mock message_id=${mockMessageId})`);
+        return {
+            success: true,
+            messageId: mockMessageId,
+        };
+    }
+
     try {
         // 🎯 注意：这里的发件人域名必须是你刚才在 AWS 验证的 ntdoc.site
         // 你可以随意更改前缀，比如 support@, noreply@, admin@ 等等
         const senderEmail = 'CeramiCraft Reviews Moderate <ai.moderate@auto.ntdoc.site>';
         
-        console.log(`[Email Service] Sending email via Resend to ${typeof options.to === 'string' ? options.to : options.to.join(', ')}`);
+        logger.info(`Sending email via Resend to ${typeof options.to === 'string' ? options.to : options.to.join(', ')}`);
         
         // 🚀 直接调接口，底层就是 fetch，稳如老狗
         const { data, error } = await resend.emails.send({
@@ -33,21 +48,21 @@ export async function sendEmail(options: EmailOptions) {
 
         // Resend 把业务错误也封装在了 error 对象里，不会直接抛出异常
         if (error) {
-            console.error(`[Email Service] Resend API Error:`, error);
+            logger.error(`Resend API Error:`, error);
             return {
                 success: false,
                 error: error.message,
             };
         }
 
-        console.log(`[Email Service] ✅ Email sent successfully (ID: ${data?.id})`);
+        logger.info(`✅ Email sent successfully (ID: ${data?.id})`);
         return {
             success: true,
             messageId: data?.id,
         };
     } catch (error: any) {
         // 捕获网络层面的极端异常
-        console.error(`[Email Service] Exception:`, error.message);
+        logger.error(`Exception:`, error.message);
         return {
             success: false,
             error: error.message,

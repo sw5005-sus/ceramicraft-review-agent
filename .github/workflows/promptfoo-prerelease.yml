@@ -1,6 +1,9 @@
 name: Promptfoo Prerelease Gate
 
 on:
+  push:
+      branches:
+        - main
   workflow_dispatch:
   workflow_call:
     secrets:
@@ -27,6 +30,7 @@ jobs:
       LLM_MODEL: ${{ secrets.LLM_MODEL }}
       LLM_VISION_MODEL: ${{ secrets.LLM_VISION_MODEL }}
       MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+      RUN_ENV: test
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
