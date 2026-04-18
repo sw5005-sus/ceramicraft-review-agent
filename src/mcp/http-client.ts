@@ -94,7 +94,7 @@ export async function callRemoteToolHttp(toolName: string, args: Record<string, 
                 name: toolName,
                 arguments: args
             });
-            console.log(`[HTTP MCP Client] ✅ Tool result:`, JSON.stringify(result).substring(0, 100));
+            console.log(`[HTTP MCP Client] ✅ Tool result:`, JSON.stringify(result).substring(0, 300));
             return result;
             
         } catch (callError: any) {
@@ -111,7 +111,7 @@ export async function callRemoteToolHttp(toolName: string, args: Record<string, 
                     name: toolName,
                     arguments: args
                 });
-                console.log(`[HTTP MCP Client] ✅ Tool result after retry:`, JSON.stringify(retryResult).substring(0, 100));
+                console.log(`[HTTP MCP Client] ✅ Tool result after retry:`, JSON.stringify(retryResult).substring(0, 300));
                 return retryResult;
             }
             
