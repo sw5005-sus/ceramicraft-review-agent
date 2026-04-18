@@ -3,6 +3,7 @@ import express from "express";
 import { reviewModerationGraph } from "./graph/index.js";
 import { listReviewsByStatusHttp, updateReviewStatusHttp } from "./mcp/tools-http.js";
 import { initializeHttpMcpClient } from "./mcp/http-client.js";
+import cron from 'node-cron';
 
 const app = express();
 app.use(express.json());
@@ -17,6 +18,18 @@ app.get("/review-agent/v1/ping", (req, res) => {
     });
 });
 
+const startInternalTimer = () => {
+    cron.schedule(process.env.BATCH_CRON_SCHEDULE || '*/2 * * * *', async () => {
+        console.log('[Timer] Triggering scheduled moderation batch...');
+        try {
+            await runBatchModeration(); 
+        } catch (err) {
+            console.error('[Timer] Cron job failed:', err);
+        }
+    });
+    console.log('⏰ Internal Cron Job scheduled.');
+};
+
 async function runBatchModeration() {
     if (isBatchRunning) {
         console.log("[Batch] A batch is already running. Skipping this trigger.");
@@ -27,7 +40,7 @@ async function runBatchModeration() {
     console.log("[Batch] Starting moderation batch process...");
 
     try {
-        const pendingResult = await listReviewsByStatusHttp("pending", 20, 0);
+        const pendingResult = await listReviewsByStatusHttp("pending", 2, 0);
         const reviews: any[] = pendingResult?.reviews ?? pendingResult?.data ?? [];
 
         if (reviews.length === 0) {
@@ -91,6 +104,7 @@ const PORT = process.env.PORT || 3000;
 initializeHttpMcpClient()
     .then(() => {
         app.listen(PORT, () => {
+            startInternalTimer();
             console.log(`🚀 Review Moderation Agent API is running on port ${PORT}`);
         });
     })
