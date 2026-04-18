@@ -1,5 +1,5 @@
 /**
- * HTTP Tool wrapper layer - For MCP server running on HTTP (e.g., http://localhost:8080)
+ * HTTP Tool wrapper layer - For MCP server running on HTTP
  * These are HTTP versions of the tool wrappers
  */
 
@@ -22,7 +22,7 @@ export async function getProductHttp(productId: string): Promise<any> {
  * @param offset - Pagination offset
  */
 export async function listReviewsByStatusHttp(
-    status: "pending" | "approved" | "rejected",
+    status: "pending" | "approved" | "rejected" | "processing",
     limit: number = 20,
     offset: number = 0
 ): Promise<any> {
@@ -44,7 +44,7 @@ export async function listReviewsByStatusHttp(
  */
 export async function updateReviewStatusHttp(
     reviewId: string,
-    status: "approved" | "hidden" | "rejected",
+    status: "approved" | "hidden" | "rejected" | "processing",
     isMismatch?: boolean,
     isHarmful?: boolean,
     autoFlag?: string,
@@ -57,24 +57,6 @@ export async function updateReviewStatusHttp(
         ...(isHarmful !== undefined && { is_harmful: isHarmful }),
         ...(autoFlag && { auto_flag: autoFlag }),
         ...(stars !== undefined && { stars })
-    });
-}
-
-/**
- * Get current user's reviews
- * @param jwtToken - JWT token for user identification
- * @param limit - Max number of reviews
- * @param offset - Pagination offset
- */
-export async function getUserReviewsHttp(
-    jwtToken: string,
-    limit: number = 10,
-    offset: number = 0
-): Promise<any> {
-    return callRemoteToolHttp("get_user_reviews", {
-        jwt_token: jwtToken,
-        limit,
-        offset
     });
 }
 

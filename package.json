@@ -5,15 +5,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "eval:promptfoo:prerelease": "promptfoo eval --no-cache -c promptfoo.prerelease.yaml"
+    "eval:promptfoo:prerelease": "promptfoo eval --no-cache -c promptfoo.prerelease.yaml",
+    "start": "node dist/server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@types/eventsource": "^1.1.15",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.5.0",
     "promptfoo": "^0.121.5",
     "ts-node": "^10.9.2",
@@ -29,6 +31,7 @@
     "axios": "^1.13.6",
     "dotenv": "^17.3.1",
     "eventsource": "^2.0.2",
+    "express": "^5.2.1",
     "resend": "^6.12.0",
     "zod": "^4.3.6"
   }

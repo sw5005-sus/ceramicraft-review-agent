@@ -28,7 +28,6 @@ export {
     getUserReviews
 } from "./tools.js";
 
-// HTTP versions (for when server is already running on http://localhost:8080)
 export {
     initializeHttpMcpClient,
     listAvailableToolsHttp,
@@ -40,6 +39,5 @@ export {
     getProductHttp,
     listReviewsByStatusHttp,
     updateReviewStatusHttp,
-    getUserReviewsHttp,
     listReviewsByUserIdHttp
 } from "./tools-http.js";

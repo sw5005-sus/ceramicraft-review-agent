@@ -7,6 +7,21 @@ import { STANDARD_SUPERVISOR_PROMPT } from "../../prompts/catalog.js";
 
 const llm = createLLMFromPromptConfig(STANDARD_SUPERVISOR_PROMPT.modelConfig);
 
+// Pre-LLM Input Sanitization: Detect common prompt injection patterns
+const INJECTION_PATTERNS = [
+  /ignore\s+(previous|prior|above)\s+instructions?/i,
+  /you\s+are\s+now\s+(a|an)\s+/i,
+  /system\s*:\s*/i,
+  /\[INST\]|\<\|system\|\>/i,
+  /disregard\s+(your\s+)?(rules|guidelines)/i,
+  /forget\s+(all\s+)?(previous|prior|above)\s+/i,
+  /override\s+(your\s+)?.*?instructions/i,
+];
+
+function detectPromptInjection(text: string): boolean {
+  return INJECTION_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
     // Reset token tracker at the start of every new graph execution (supervisor is always first).
     globalTokenTracker.reset();
@@ -19,6 +34,16 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
         console.log("Supervisor: Empty or missing review text. Treating as potential spam.");
         return {
             reasoningLogs: [`[Supervisor Triage] Category: spam. Action: short_circuit. Reason: Empty or missing review content.`],
+            executedPrompts: [{ name: STANDARD_SUPERVISOR_PROMPT.name }],
+            autoFlag: "supervisor_rejected"
+        };
+    }
+
+    // Pre-LLM sanitization: Detect prompt injection attempts
+    if (detectPromptInjection(text)) {
+        console.log("Supervisor: Detected potential prompt injection attempt in review text.");
+        return {
+            reasoningLogs: [`[Supervisor Triage] Category: spam. Action: short_circuit. Reason: Detected prompt injection/manipulation attempt in review text.`],
             executedPrompts: [{ name: STANDARD_SUPERVISOR_PROMPT.name }],
             autoFlag: "supervisor_rejected"
         };

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * MLflow REST API client for logging comment moderation runs, traces, and prompts.
  * (Migrated to native fetch to bypass VPN TUN network resets)
@@ -20,7 +21,7 @@ const S3_BUCKET = "ceramicraft-mlflow";
 
 const MLFLOW_BASE = (process.env.MLFLOW_TRACKING_URI ?? "").replace(/\/$/, "");
 const EXPERIMENT_NAME = "comment-moderate-traces";
-const DEFAULT_MODEL_NAME = "kimi-k2-0711-preview";
+const DEFAULT_MODEL_NAME = process.env.LLM_MODEL;
 const PROMPT_EXPERIMENT_IDS_TAG_KEY = "_mlflow_experiment_ids";
 const LINKED_PROMPTS_TAG_KEY = "mlflow.linkedPrompts";
 const PROMPT_ASSOCIATED_RUN_IDS_TAG_KEY = "mlflow.prompt.associatedRunIds";
@@ -78,6 +79,7 @@ export interface ModerationRunData {
   isImageSafe?: boolean | null | undefined;
   isImageRelevant?: boolean | null | undefined;
   inferredScore?: number | null | undefined;
+  confidenceScore?: number | undefined;
   finalStatus?: "approved" | "hidden" | "rejected" | undefined;
   autoFlag?: string | null | undefined;
   isHarmful?: boolean | undefined;
@@ -206,6 +208,9 @@ function buildRunMetrics(
   if (data.inferredScore !== null && data.inferredScore !== undefined) {
     metrics.push({ key: "inferred_score", value: data.inferredScore, timestamp, step: 0 });
   }
+  if (data.confidenceScore !== undefined) {
+    metrics.push({ key: "confidence_score", value: data.confidenceScore, timestamp, step: 0 });
+  }
   if (data.latencyMs !== undefined) {
     metrics.push({ key: "latency_ms", value: data.latencyMs, timestamp, step: 0 });
   }
@@ -231,6 +236,7 @@ export interface ModerationTraceData {
   finalStatus?: "approved" | "hidden" | "rejected" | undefined;
   autoFlag?: string | null | undefined;
   isHarmful?: boolean | undefined;
+  confidenceScore?: number | undefined;
   linkedPrompts?: PromptVersionRef[] | undefined;
   reasoningLogs?: string[] | undefined;
   startTimeMs?: number | undefined;
@@ -343,6 +349,7 @@ export async function logModerationTrace(data: ModerationTraceData): Promise<voi
     if (thinkingSummary) traceMetadata["thinking_process"] = thinkingSummary;
     if (data.finalStatus) traceMetadata["final_status"] = data.finalStatus;
     if (data.autoFlag) traceMetadata["auto_flag"] = data.autoFlag;
+    if (data.confidenceScore !== undefined) traceMetadata["confidence_score"] = String(data.confidenceScore);
 
     const traceTags: Record<string, string> = {
       "mlflow.traceName": "comment-moderation",

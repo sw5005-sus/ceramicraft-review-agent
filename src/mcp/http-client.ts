@@ -12,7 +12,9 @@ let httpTransport: StreamableHTTPClientTransport | null = null;
  * Uses the official MCP SDK StreamableHTTPClientTransport
  * @param mcpUrl - The base URL of the MCP server (e.g., http://localhost:8080/mcp)
  */
-export async function initializeHttpMcpClient(mcpUrl: string = "http://localhost:8080/mcp"): Promise<Client> {
+const getMcpServerUrl = process.env.MCP_SERVER_URL || "http://localhost:8080/mcp";
+
+export async function initializeHttpMcpClient(mcpUrl: string = getMcpServerUrl): Promise<Client> {
     if (mcpClient) {
         console.log("[HTTP MCP Client] Already connected");
         return mcpClient;
@@ -84,16 +86,37 @@ export async function listAvailableToolsHttp(): Promise<any[]> {
  */
 export async function callRemoteToolHttp(toolName: string, args: Record<string, any>): Promise<any> {
     try {
-        console.log(`[HTTP MCP Client] Calling tool: ${toolName}`, JSON.stringify(args).substring(0, 100));
+        console.log(`[HTTP MCP Client] Calling tool: ${toolName}`);
+        let client = getMcpClient();
         
-        const client = getMcpClient();
-        const result = await client.callTool({
-            name: toolName,
-            arguments: args
-        });
-
-        console.log(`[HTTP MCP Client] ✅ Tool result:`, JSON.stringify(result).substring(0, 100));
-        return result;
+        try {
+            const result = await client.callTool({
+                name: toolName,
+                arguments: args
+            });
+            console.log(`[HTTP MCP Client] ✅ Tool result:`, JSON.stringify(result).substring(0, 100));
+            return result;
+            
+        } catch (callError: any) {
+            if (callError.message && (callError.message.includes("Session not found") || callError.message.includes("fetch failed"))) {
+                console.warn(`[HTTP MCP Client] ⚠️ Session lost or server disconnected. Attempting to reconnect...`);
+                
+                await closeMcpClient();
+                
+                await initializeHttpMcpClient();
+                
+                client = getMcpClient();
+                console.log(`[HTTP MCP Client] 🔄 Reconnection successful. Retrying tool call: ${toolName}...`);
+                const retryResult = await client.callTool({
+                    name: toolName,
+                    arguments: args
+                });
+                console.log(`[HTTP MCP Client] ✅ Tool result after retry:`, JSON.stringify(retryResult).substring(0, 100));
+                return retryResult;
+            }
+            
+            throw callError;
+        }
     } catch (error: any) {
         console.error(`[HTTP MCP Client] Error calling tool ${toolName}:`, error.message);
         throw error;
@@ -105,7 +128,7 @@ export async function callRemoteToolHttp(toolName: string, args: Record<string, 
  */
 export async function checkMcpServerHealth(): Promise<boolean> {
     try {
-        const response = await fetch("http://localhost:8080/mcp", {
+        const response = await fetch(getMcpServerUrl, {
             method: "HEAD"
         });
         // 406 is expected for HEAD requests to SSE endpoint, means server is there

@@ -1,4 +1,5 @@
-import { ReviewGraphState, type SpanRecord } from "../state.js";
+import { z } from "zod";
+import { ReviewGraphState } from "../state.js";
 import { updateReviewStatusHttp } from "../../mcp/tools-http.js";
 import {
     logModerationRun,
@@ -7,8 +8,10 @@ import {
     registerSystemPrompts,
     resolvePromptVersionRefs,
 } from "../../utils/mlflowClient.js";
-import { globalTokenTracker } from "../../utils/llmFactory.js";
+import { globalTokenTracker, createLLMFromPromptConfig } from "../../utils/llmFactory.js";
 import { sendModerationNotification } from "../../utils/emailService.js";
+
+const CONFIDENCE_THRESHOLD = 80; // Reviews with confidence < 80 escalated to manual review
 
 export const finalDecisionNode = async (state: typeof ReviewGraphState.State) => {
     console.log("Final Decision: Analyzing all evidence and making final verdict...");
@@ -135,6 +138,45 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
         `[Final Decision] Reason: ${summaryReason}`
     ];
     
+    // 6.5 Evaluate confidence score based on reasoning logs (LLM-based)
+    let confidenceScore = 50;
+    try {
+        const llm = createLLMFromPromptConfig({ model_name: process.env.LLM_MODEL ?? "kimi-k2-0711-preview", temperature: 0 });
+        const confidenceSchema = z.object({
+            confidenceScore: z.number().min(0).max(100).describe("Confidence in this decision from 0 to 100.")
+        });
+        const structuredLlm = llm.withStructuredOutput(confidenceSchema, { method: "functionCalling" });
+        
+        const confidencePrompt = `Based on the worker evidence and reasoning logs below, evaluate your confidence in the final moderation decision.
+
+Worker Evidence:
+${reasoningLogs.join("\n")}
+Final Status Decision: ${finalStatus}
+Summary Reason: ${summaryReason}
+
+Rating Guidelines:
+- 90-100: High confidence. Evidence is clear, consistent, and unambiguous.
+- 70-89: Medium-high confidence. Most evidence aligns, minor ambiguities.
+- 50-69: Medium confidence. Mixed signals or some contradictory evidence.
+- 30-49: Low confidence. Significant ambiguity or contradictions.
+- 0-29: Very low confidence. Evidence is unclear or conflicting.
+
+Rate your confidence from 0 to 100:`;
+        
+        const result = await structuredLlm.invoke(confidencePrompt);
+        confidenceScore = result.confidenceScore;
+        logs.push(`[Final Decision] LLM Confidence: ${confidenceScore}`);
+    } catch (err: any) {
+        logs.push(`[Final Decision] Confidence evaluation failed: ${err.message}. Using default fallback.`);
+    }
+    
+    // 6.6 Auto-escalate low-confidence approvals to manual review
+    if (finalStatus === "approved" && confidenceScore < CONFIDENCE_THRESHOLD) {
+        finalStatus = "hidden";
+        summaryReason = `Automated decision confidence too low (${confidenceScore}%); escalated for manual review.`;
+        logs.push(`[Final Decision] ⚠️  Confidence ${confidenceScore}% < ${CONFIDENCE_THRESHOLD}%; escalated to manual review`);
+    }
+    
     // Add context for hidden reviews
     if (finalStatus === "hidden") {
         const displayRating = reviewPayload?.stars ?? reviewPayload?.rating;
@@ -187,6 +229,7 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
         isImageSafe,
         isImageRelevant,
         inferredScore,
+        confidenceScore,
         finalStatus,
         autoFlag: finalAutoFlag ?? null,
         isHarmful,
@@ -203,6 +246,7 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
         finalStatus,
         autoFlag:      finalAutoFlag ?? null,
         isHarmful,
+        confidenceScore,
         linkedPrompts,
         reasoningLogs: logs,
         startTimeMs:   graphStartTime,
@@ -214,8 +258,8 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
     });
 
     // 10. Send moderation notification to admin
-    // Only notify admin if: review is REJECTED (dangerous user) OR has after-sales (needs action)
-    const shouldNotifyAdmin = finalStatus === "rejected" || requiresAfterSales;
+    // Only notify admin if: review is REJECTED (dangerous user) OR has after-sales (needs action) OR escalated due to low confidence
+    const shouldNotifyAdmin = finalStatus === "rejected" || requiresAfterSales || (confidenceScore < CONFIDENCE_THRESHOLD && finalStatus === "hidden");
     const adminEmail = process.env.EMAIL_RECEIVER;
     
     if (adminEmail && shouldNotifyAdmin) {
@@ -254,6 +298,7 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
 
     return {
         finalStatus,
+        confidenceScore,
         reasoningLogs: logs,
         afterSalesDraft: requiresAfterSales ? afterSalesDraft : undefined,
         // Include evidence fields for test visibility
