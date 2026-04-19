@@ -100,10 +100,11 @@ app.post("/review-agent/v1/moderate-batch", (req, res) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
+const HOST = '0.0.0.0';
 initializeHttpMcpClient()
     .then(() => {
-        app.listen(PORT, () => {
+        app.listen(PORT, HOST, () => {
             startInternalTimer();
             console.log(`🚀 Review Moderation Agent API is running on port ${PORT}`);
         });
