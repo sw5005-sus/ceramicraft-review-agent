@@ -39,9 +39,18 @@ async function runBatchModeration() {
     isBatchRunning = true;
     console.log("[Batch] Starting moderation batch process...");
 
+    const pendingResult = await listReviewsByStatusHttp("pending", 2, 0);
     try {
-        const pendingResult = await listReviewsByStatusHttp("pending", 2, 0);
-        const reviews: any[] = pendingResult?.reviews ?? pendingResult?.data ?? [];
+        let reviews: any[] = [];
+        try {
+            const rawText = pendingResult?.content?.[0]?.text;
+            if (rawText) {
+                const parsedPayload = JSON.parse(rawText);
+                reviews = parsedPayload.data || [];
+            }
+        } catch (error) {
+            console.error("[Batch] Failed to parse MCP tool result:", error);
+        }
 
         if (reviews.length === 0) {
             console.log("[Batch] No pending reviews found. Batch finished.");
@@ -49,7 +58,7 @@ async function runBatchModeration() {
             return;
         }
 
-        console.log(`[Batch] Found ${reviews.length} pending reviews. Marking as 'processing'...`);
+        console.log(`[Batch] Found ${reviews.length} pending reviews, proceeding to moderation...`);
 
         for (const review of reviews) {
             await updateReviewStatusHttp(review.id, "processing");
