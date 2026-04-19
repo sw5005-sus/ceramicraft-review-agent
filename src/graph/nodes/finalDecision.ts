@@ -155,7 +155,7 @@ Final Status Decision: ${finalStatus}
 Summary Reason: ${summaryReason}
 
 Rating Guidelines:
-- 90-100: High confidence. Evidence is clear, consistent, and unambiguous.
+- 90-100: High confidence. Evidence is clear, consistent, and unambiguous. (NOTE: Successfully imputing a score for a 0-star review based on strong text sentiment counts as HIGH confidence. Do not penalize the score just because the original rating was missing).
 - 70-89: Medium-high confidence. Most evidence aligns, minor ambiguities.
 - 50-69: Medium confidence. Mixed signals or some contradictory evidence.
 - 30-49: Low confidence. Significant ambiguity or contradictions.
