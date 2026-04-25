@@ -59,10 +59,14 @@ export const visionWorkerNode = async (state: typeof ReviewGraphState.State) => 
     });
 
     // 3. System Prompt with strict JSON injection
-        const visionPromptTemplate = STANDARD_VISION_WORKER_PROMPT.template as Array<{ role: "system" | "user" | "assistant"; content: string }>;
-        const systemPrompt = visionPromptTemplate[0]?.content ?? "";
-        const userPrompt = visionPromptTemplate[1]?.content ?? "Please analyze this image and return the required JSON.";
-
+    const visionPromptTemplate = STANDARD_VISION_WORKER_PROMPT.template as Array<{ role: "system" | "user" | "assistant"; content: string }>;
+    const systemPrompt = visionPromptTemplate[0]?.content ?? "";
+    let userPrompt = visionPromptTemplate[1]?.content ?? "Please analyze this image and return the required JSON.";
+    if (state.productContext) {
+        userPrompt += `\n\n[CRITICAL CONTEXT FOR RELEVANCE CHECK]
+This image belongs to a review for the following product: ${state.productContext}. 
+Please use this product information to accurately determine the 'isRelevant' field. If the image shows something completely unrelated to this specific product or category, set 'isRelevant' to false.`;
+    }
     // Process each image and collect evidence
     let allImagesSafe = true;
     let allImagesRelevant = true;

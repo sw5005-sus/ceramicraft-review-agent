@@ -4,6 +4,7 @@ import { ReviewGraphState, type SpanRecord } from "../state.js";
 import { createLLMFromPromptConfig } from "../../utils/llmFactory.js";
 import { globalTokenTracker } from "../../utils/llmFactory.js";
 import { STANDARD_SUPERVISOR_PROMPT } from "../../prompts/catalog.js";
+import { getProductHttp } from "../../mcp/tools-http.js";
 
 const llm = createLLMFromPromptConfig(STANDARD_SUPERVISOR_PROMPT.modelConfig);
 
@@ -86,6 +87,37 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
         statusCode: "OK",
     };
 
+    let productContext = undefined;
+    if (triageResult.action !== "short_circuit") {
+        const productId = state.reviewPayload?.product_id || state.reviewPayload?.productId;
+        if (productId) {
+            try {
+                console.log(`[Supervisor] Fetching product context for downstream workers...`);
+                const response = await getProductHttp(String(productId));
+                
+                // 解析逻辑（把你 textWorker 里的复制过来）
+                let productData: any = null;
+                if (response?.content && Array.isArray(response.content) && response.content[0]?.text) {
+                    try {
+                        const parsed = JSON.parse(response.content[0].text);
+                        productData = parsed?.data || parsed;
+                    } catch (e) { }
+                } else if (response?.data) {
+                    productData = response.data;
+                } else if (response?.name) {
+                    productData = response;
+                }
+                
+                if (productData?.name) {
+                    productContext = `Category=${productData.category || "unknown"}, Name=${productData.name}`;
+                    console.log(`[Supervisor] Hydrated product: ${productData.name}`);
+                }
+            } catch (error: any) {
+                console.log(`[Supervisor] Could not fetch product: ${error.message}`);
+            }
+        }
+    }
+
     // 4. 将分诊结果写入 State，供图的条件路由 (Conditional Edge) 读取
     return {
         reasoningLogs: [`[Supervisor Triage] Category: ${triageResult.category}. Action: ${triageResult.action}. Reason: ${triageResult.reason}`],
@@ -93,5 +125,6 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
         // 如果我们发现可以直接短路，就打个标记
         autoFlag: triageResult.action === "short_circuit" ? "supervisor_rejected" : null,
         spanRecords: [spanRecord],
+        productContext: productContext,
     };
 };

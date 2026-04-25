@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ReviewGraphState } from "../state.js";
+import { ReviewGraphState, type SpanRecord } from "../state.js";
 import { updateReviewStatusHttp } from "../../mcp/tools-http.js";
 import {
     logModerationRun,
@@ -131,6 +131,7 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
     const reviewId = reviewPayload?.id || reviewPayload?.reviewId;
     const isHarmful = autoFlag === "supervisor_rejected" || isSafe === false || isImageSafe === false;
 
+    const allSpans: SpanRecord[] = [...(spanRecords || [])];
     // 6. Build final logs
     const logs = [
         `[Final Decision] Decision Rules Applied`,
@@ -140,6 +141,13 @@ export const finalDecisionNode = async (state: typeof ReviewGraphState.State) =>
     
     // 6.5 Evaluate confidence score based on reasoning logs (LLM-based)
     let confidenceScore = 50;
+    const llmSpanStart = Date.now();
+    let llmStatusCode: "OK" | "ERROR" = "OK";
+    let llmOutputStr = "";
+    const tokensBefore = { 
+        input: globalTokenTracker.inputTokens, 
+        output: globalTokenTracker.outputTokens 
+    };
     try {
         const llm = createLLMFromPromptConfig({ model_name: process.env.LLM_MODEL ?? "kimi-k2-0711-preview", temperature: 0 });
         const confidenceSchema = z.object({
@@ -165,9 +173,33 @@ Rate your confidence from 0 to 100:`;
         
         const result = await structuredLlm.invoke(confidencePrompt);
         confidenceScore = result.confidenceScore;
+        llmOutputStr = JSON.stringify(result);
         logs.push(`[Final Decision] LLM Confidence: ${confidenceScore}`);
+
+        allSpans.push({
+            name: "finalDecision-confidenceLLM",
+            spanType: "LLM",
+            startTimeMs: llmSpanStart,
+            endTimeMs: Date.now(),
+            inputs: JSON.stringify({ prompt: confidencePrompt }),
+            outputs: llmOutputStr,
+            inputTokens: globalTokenTracker.inputTokens - tokensBefore.input,
+            outputTokens: globalTokenTracker.outputTokens - tokensBefore.output,
+            model: process.env.LLM_MODEL ?? "kimi-k2-0711-preview",
+            statusCode: llmStatusCode,
+        });
     } catch (err: any) {
+        llmStatusCode = "ERROR";
         logs.push(`[Final Decision] Confidence evaluation failed: ${err.message}. Using default fallback.`);
+        allSpans.push({
+            name: "finalDecision-confidenceLLM",
+            spanType: "LLM",
+            startTimeMs: llmSpanStart,
+            endTimeMs: Date.now(),
+            inputs: "Failed to evaluate",
+            outputs: err.message,
+            statusCode: llmStatusCode,
+        });
     }
     
     // 6.6 Auto-escalate low-confidence approvals to manual review
@@ -175,12 +207,6 @@ Rate your confidence from 0 to 100:`;
         finalStatus = "hidden";
         summaryReason = `Automated decision confidence too low (${confidenceScore}%); escalated for manual review.`;
         logs.push(`[Final Decision] ⚠️  Confidence ${confidenceScore}% < ${CONFIDENCE_THRESHOLD}%; escalated to manual review`);
-    }
-    
-    // Add context for hidden reviews
-    if (finalStatus === "hidden") {
-        const displayRating = reviewPayload?.stars ?? reviewPayload?.rating;
-        logs.push(`[Final Decision] Reason: Rating (${displayRating}) does not match sentiment`);
     }
     
     // Add after-sales context if present
@@ -195,6 +221,9 @@ Rate your confidence from 0 to 100:`;
 
     // 7. Persist decision to backend (if reviewId provided)
     if (reviewId) {
+        const dbSpanStart = Date.now();
+        let dbStatusCode: "OK" | "ERROR" = "OK";
+        let dbOutputs = "Success";
         try {
             console.log(`[Final Decision] Persisting decision to backend...`);
             await updateReviewStatusHttp(
@@ -207,7 +236,19 @@ Rate your confidence from 0 to 100:`;
             );
             logs.push(`[Final Decision] ✓ Decision persisted (reviewId: ${reviewId})`);
         } catch (error: any) {
+            dbStatusCode = "ERROR";
+            dbOutputs = error.message;
             logs.push(`[Final Decision] ⚠️ Failed to persist: ${error.message}`);
+        } finally {
+            allSpans.push({
+                name: "tool-updateReviewStatus",
+                spanType: "TOOL",
+                startTimeMs: dbSpanStart,
+                endTimeMs: Date.now(),
+                inputs: JSON.stringify({ reviewId, finalStatus, isHarmful, finalAutoFlag }),
+                outputs: dbOutputs,
+                statusCode: dbStatusCode,
+            });
         }
     }
 
@@ -238,31 +279,16 @@ Rate your confidence from 0 to 100:`;
         latencyMs: Date.now() - graphStartTime,
     });
 
-    // 9. Push GenAI Trace (visible in Traces tab)
-    await logModerationTrace({
-        reviewId:      reviewId ?? undefined,
-        reviewContent: reviewPayload?.content ?? reviewPayload?.text,
-        productId:     reviewPayload?.product_id ?? reviewPayload?.productId,
-        finalStatus,
-        autoFlag:      finalAutoFlag ?? null,
-        isHarmful,
-        confidenceScore,
-        linkedPrompts,
-        reasoningLogs: logs,
-        startTimeMs:   graphStartTime,
-        latencyMs:     Date.now() - graphStartTime,
-        inputTokens:   globalTokenTracker.inputTokens,
-        outputTokens:  globalTokenTracker.outputTokens,
-        totalTokens:   globalTokenTracker.totalTokens,
-        spanRecords:   spanRecords ?? [],
-    });
 
-    // 10. Send moderation notification to admin
+    // 9. Send moderation notification to admin
     // Only notify admin if: review is REJECTED (dangerous user) OR has after-sales (needs action) OR escalated due to low confidence
     const shouldNotifyAdmin = finalStatus === "rejected" || requiresAfterSales || (confidenceScore < CONFIDENCE_THRESHOLD && finalStatus === "hidden");
     const adminEmail = process.env.EMAIL_RECEIVER;
     
     if (adminEmail && shouldNotifyAdmin) {
+        const emailSpanStart = Date.now();
+        let emailStatusCode: "OK" | "ERROR" = "OK";
+        let emailOutputs = "Email sent successfully";
         try {
             console.log(`[Final Decision] Sending moderation notification to admin (${adminEmail})...`);
             const reviewContent = reviewPayload?.content ?? reviewPayload?.text ?? "(no content)";
@@ -285,16 +311,49 @@ Rate your confidence from 0 to 100:`;
             if (emailResult.success) {
                 logs.push(`[Final Decision] ✅ Moderation notification sent to admin`);
             } else {
+                emailStatusCode = "ERROR";
+                emailOutputs = emailResult.error;
                 logs.push(`[Final Decision] ⚠️ Failed to send admin notification: ${emailResult.error}`);
             }
         } catch (error: any) {
+            emailStatusCode = "ERROR";
+            emailOutputs = error.message;
             logs.push(`[Final Decision] ⚠️ Exception while sending admin email: ${error.message}`);
+        } finally {
+            allSpans.push({
+                name: "tool-sendAdminEmail",
+                spanType: "TOOL",
+                startTimeMs: emailSpanStart,
+                endTimeMs: Date.now(),
+                inputs: JSON.stringify({ to: adminEmail, reviewId }),
+                outputs: emailOutputs,
+                statusCode: emailStatusCode,
+            });
         }
     } else if (!shouldNotifyAdmin) {
         logs.push(`[Final Decision] ℹ️  Skipped admin notification: review approved, no after-sales`);
     } else {
         logs.push(`[Final Decision] ⚠️ No admin email configured (EMAIL_RECEIVER), skipping notification`);
     }
+
+    // 10. Push GenAI Trace (visible in Traces tab)
+    await logModerationTrace({
+        reviewId:      reviewId ?? undefined,
+        reviewContent: reviewPayload?.content ?? reviewPayload?.text,
+        productId:     reviewPayload?.product_id ?? reviewPayload?.productId,
+        finalStatus,
+        autoFlag:      finalAutoFlag ?? null,
+        isHarmful,
+        confidenceScore,
+        linkedPrompts,
+        reasoningLogs: logs,
+        startTimeMs:   graphStartTime,
+        latencyMs:     Date.now() - graphStartTime,
+        inputTokens:   globalTokenTracker.inputTokens,
+        outputTokens:  globalTokenTracker.outputTokens,
+        totalTokens:   globalTokenTracker.totalTokens,
+        spanRecords:   allSpans,
+    });
 
     return {
         finalStatus,

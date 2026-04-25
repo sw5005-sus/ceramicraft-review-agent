@@ -11,14 +11,18 @@ export const imputationWorkerNode = async (state: typeof ReviewGraphState.State)
     // Support both field name conventions (content from real API, text from test)
     const text = state.reviewPayload?.content || state.reviewPayload?.text || "";
     const user_id = state.reviewPayload?.user_id;
+    const localSpans: SpanRecord[] = [];
 
     // Fetch user's review history as sentiment-to-rating calibration examples
     let userHistoryContext = "";
     if (user_id) {
+        const toolSpanStart = Date.now();
+        let toolStatusCode: "OK" | "ERROR" = "OK";
+        let toolOutputs = "";
         try {
             console.log(`[Imputation Worker] Fetching review history for user_id=${user_id}`);
             const result = await listReviewsByUserIdHttp(user_id);
-
+            toolOutputs = "[Omitted for brevity, data fetched successfully]"; 
             // Robustly extract reviews array from all possible MCP return shapes
             let reviews: any[] = [];
             if (result?.reviews) {
@@ -51,8 +55,21 @@ ${calibrationSamples.join("\n")}`;
                 // No usable calibration, let LLM decide as before
                 console.log(`[Imputation Worker] No usable calibration samples for user_id=${user_id}`);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.warn(`[Imputation Worker] Warning: Could not fetch user history:`, error);
+            toolStatusCode = "ERROR";
+            toolOutputs = error.message;
+        } finally {
+            // 将 Tool 调用记录进 Span
+            localSpans.push({
+                name: "tool-listReviewsByUserId",
+                spanType: "TOOL", 
+                startTimeMs: toolSpanStart,
+                endTimeMs: Date.now(),
+                inputs: JSON.stringify({ user_id }),
+                outputs: toolOutputs,
+                statusCode: toolStatusCode,
+            });
         }
     }
 
@@ -72,8 +89,8 @@ ${calibrationSamples.join("\n")}`;
     const result = await structuredImputationLlm.invoke(prompt);
     const spanEnd = Date.now();
 
-    const spanRecord: SpanRecord = {
-        name: "imputationWorker",
+    localSpans.push({
+        name: "imputationWorker-llm",
         spanType: "LLM",
         startTimeMs: spanStart,
         endTimeMs: spanEnd,
@@ -83,12 +100,12 @@ ${calibrationSamples.join("\n")}`;
         outputTokens: globalTokenTracker.outputTokens - tokensBefore.output,
         model: STANDARD_IMPUTATION_WORKER_PROMPT.modelConfig?.model_name,
         statusCode: "OK",
-    };
+    });
 
     return { 
         reasoningLogs: [`[Imputation Worker] Inferred Score: ${result.inferredScore}. Reason: ${result.reasoning}`],
         executedPrompts: [{ name: STANDARD_IMPUTATION_WORKER_PROMPT.name }],
         inferredScore: result.inferredScore,
-        spanRecords: [spanRecord],
+        spanRecords: localSpans,
     };
 };

@@ -2,7 +2,6 @@
 import { z } from "zod";
 import { ReviewGraphState, type SpanRecord } from "../state.js";
 import { createLLMFromPromptConfig, globalTokenTracker } from "../../utils/llmFactory.js";
-import { getProductHttp } from "../../mcp/tools-http.js";
 import { STANDARD_TEXT_WORKER_PROMPT } from "../../prompts/catalog.js";
 
 const llm = createLLMFromPromptConfig(STANDARD_TEXT_WORKER_PROMPT.modelConfig);
@@ -13,44 +12,8 @@ export const textWorkerNode = async (state: typeof ReviewGraphState.State) => {
     // Support both field name conventions (content/stars from real API, text/rating from test)
     const text = state.reviewPayload?.content || state.reviewPayload?.text || "";
     const rating = state.reviewPayload?.stars ?? state.reviewPayload?.rating;
-    const productId = state.reviewPayload?.product_id || state.reviewPayload?.productId;
     const originalStars = state.reviewPayload?.stars;
-    
-    // Fetch product details if available for relevance check
-    let productContext = "";
-    if (productId) {
-        try {
-            const response = await getProductHttp(String(productId));
-            
-            // Parse MCP HTTP response format: {"content":[{"type":"text","text":"JSON_STRING"}]}
-            let productData: any = null;
-            if (response?.content && Array.isArray(response.content) && response.content[0]?.text) {
-                try {
-                    const jsonText = response.content[0].text;
-                    const parsed = JSON.parse(jsonText);
-                    productData = parsed?.data || parsed;
-                } catch (e) {
-                    // If direct parse fails, try extracting JSON from the text
-                    console.log(`[Text Worker] Could not parse product response JSON`);
-                }
-            } else if (response?.data) {
-                // Direct response format
-                productData = response.data;
-            } else if (response?.name) {
-                // Fallback: response is already the product object
-                productData = response;
-            }
-            
-            if (productData?.name) {
-                productContext = `\nProduct Info: Category=${productData.category || "unknown"}, Name=${productData.name}`;
-                console.log(`[Text Worker] Fetched product: ${productData.name}`);
-            } else {
-                console.log(`[Text Worker] Product response missing name field`);
-            }
-        } catch (error: any) {
-            console.log(`[Text Worker] Could not fetch product: ${error.message}`);
-        }
-    }
+    const productContext = state.productContext ? `\nProduct Info: ${state.productContext}` : "";
 
     // 1. Expanded Zod Schema for After-Sales drafting
     const textAnalysisSchema = z.object({

@@ -42,6 +42,8 @@ export const ReviewGraphState = Annotation.Root({
     [key: string]: any;       // Allow flexible fields
   }>(), 
   
+  productContext: Annotation<string>(),
+  
   // 2. Process data (inference logs written by workers)
   reasoningLogs: Annotation<string[]>({
     reducer: (curr, update) => curr.concat(update), // append new log entries
