@@ -13,7 +13,7 @@ const INJECTION_PATTERNS = [
   /ignore\s+(previous|prior|above)\s+instructions?/i,
   /you\s+are\s+now\s+(a|an)\s+/i,
   /system\s*:\s*/i,
-  /\[INST\]|\<\|system\|\>/i,
+  /\[INST\]|<\|system\|>/i,
   /disregard\s+(your\s+)?(rules|guidelines)/i,
   /forget\s+(all\s+)?(previous|prior|above)\s+/i,
   /override\s+(your\s+)?.*?instructions/i,
@@ -105,7 +105,7 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
                         const parsed = JSON.parse(response.content[0].text);
                         productData = parsed?.data || parsed;
                         toolOutputs = "product found, " +  productData.name + ", " + productData.desc;
-                    } catch (e) { }
+                    } catch (e) { console.log('parse product error') }
                 } else if (response?.data) {
                     productData = response.data;
                 } else if (response?.name) {
@@ -117,6 +117,7 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
                     console.log(`[Supervisor] Hydrated product: ${productData.name}`);
                 }
             } catch (error: any) {
+                toolStatusCode = "ERROR";
                 console.log(`[Supervisor] Could not fetch product: ${error.message}`);
             } finally {
                 localSpans.push({

@@ -22,9 +22,6 @@ const llm = createLLMFromPromptConfig(ENHANCED_TEXT_WORKER_PROMPT.modelConfig);
 export const textWorkerNode = async (state: typeof ReviewGraphState.State) => {
     console.log("Text Worker: Collecting evidence for review...");
     const { text, rating, productId } = state.reviewPayload;
-
-    // Collect evidence piece by piece
-    let isRelevant: boolean | null = null;
     let productContext = "";
 
     // EVIDENCE 1: Product Relevance (if productId provided)

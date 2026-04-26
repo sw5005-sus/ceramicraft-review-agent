@@ -182,10 +182,10 @@ async function testE2EWithHttp() {
                 }
 
                 console.log(`\n   📝 Reasoning:`);
-                result.reasoningLogs.forEach(log => console.log(`      ${log}`));
+                result.reasoningLogs.forEach((log: string) => console.log(`      ${log}`));
                 
                 passed++;
-            } catch (error: any) {
+            } catch (error: any) { 
                 console.log(`   ❌ Error: ${error.message}`);
                 failed++;
             }

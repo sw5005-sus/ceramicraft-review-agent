@@ -64,7 +64,7 @@ async function resolveExperimentId(): Promise<string> {
       throw new Error(`HTTP Error: ${res.status}`);
     }
   } catch (err: any) {
-    throw err;
+    console.log(`[MLflow] Warning: Could not resolve or create experiment "${EXPERIMENT_NAME}": ${err.message}`);
   }
 
   return cachedExperimentId!;
