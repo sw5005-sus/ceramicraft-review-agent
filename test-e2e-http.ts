@@ -96,10 +96,10 @@ async function testE2EWithHttp() {
                     "user_id": 2,
                     "product_id": 2,
                     "parent_id": "",
-                    "stars": 4,
+                    "stars": 5,
                     "is_anonymous": false,
                     "pic_info": [
-                        "18a6dcdd0f486579.jpg"
+                        //"18a6dcdd0f486579.jpg"
                     ],
                     "created_at": "2026-04-16T14:32:37.509Z",
                     "likes": 0,

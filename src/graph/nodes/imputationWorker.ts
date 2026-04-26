@@ -90,7 +90,7 @@ ${calibrationSamples.join("\n")}`;
     const spanEnd = Date.now();
 
     localSpans.push({
-        name: "imputationWorker-llm",
+        name: "imputationWorker",
         spanType: "LLM",
         startTimeMs: spanStart,
         endTimeMs: spanEnd,

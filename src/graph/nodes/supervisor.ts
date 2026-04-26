@@ -74,8 +74,8 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
     const triageResult = await structuredLlm.invoke(await formattedPrompt.invoke({}));
 
     const spanEnd = Date.now();
-    const spanRecord: SpanRecord = {
-        name: "supervisor",
+    const llmSpanRecord: SpanRecord = {
+        name: "supervisor-triageLLM",
         spanType: "LLM",
         startTimeMs: spanStart,
         endTimeMs: spanEnd,
@@ -86,21 +86,25 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
         model: STANDARD_SUPERVISOR_PROMPT.modelConfig?.model_name,
         statusCode: "OK",
     };
+    const localSpans: SpanRecord[] = [llmSpanRecord];
 
     let productContext = undefined;
     if (triageResult.action !== "short_circuit") {
         const productId = state.reviewPayload?.product_id || state.reviewPayload?.productId;
         if (productId) {
+            const toolSpanStart = Date.now();
+            let toolStatusCode: "OK" | "ERROR" = "OK";
+            let toolOutputs = "";
             try {
                 console.log(`[Supervisor] Fetching product context for downstream workers...`);
                 const response = await getProductHttp(String(productId));
                 
-                // 解析逻辑（把你 textWorker 里的复制过来）
                 let productData: any = null;
                 if (response?.content && Array.isArray(response.content) && response.content[0]?.text) {
                     try {
                         const parsed = JSON.parse(response.content[0].text);
                         productData = parsed?.data || parsed;
+                        toolOutputs = "product found, " +  productData.name + ", " + productData.desc;
                     } catch (e) { }
                 } else if (response?.data) {
                     productData = response.data;
@@ -114,6 +118,16 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
                 }
             } catch (error: any) {
                 console.log(`[Supervisor] Could not fetch product: ${error.message}`);
+            } finally {
+                localSpans.push({
+                    name: "tool-getProduct",
+                    spanType: "TOOL",
+                    startTimeMs: toolSpanStart,
+                    endTimeMs: Date.now(),
+                    inputs: JSON.stringify({ productId }),
+                    outputs: toolOutputs,
+                    statusCode: toolStatusCode,
+                });
             }
         }
     }
@@ -124,7 +138,7 @@ export const supervisorNode = async (state: typeof ReviewGraphState.State) => {
         executedPrompts: [{ name: STANDARD_SUPERVISOR_PROMPT.name }],
         // 如果我们发现可以直接短路，就打个标记
         autoFlag: triageResult.action === "short_circuit" ? "supervisor_rejected" : null,
-        spanRecords: [spanRecord],
+        spanRecords: localSpans,
         productContext: productContext,
     };
 };
