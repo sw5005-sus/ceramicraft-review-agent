@@ -91,22 +91,21 @@ async function testE2EWithHttp() {
                 id: "TEST_1",
                 name: "infer score Review - Expected: approved",
                 input: {
-                    "id": "69e0f3050d631c6bd387e721",
-                    "content": "good",
+                    "id": "69edf8d7f830dbc092d068a6",
+                    "content": "broken!",
                     "user_id": 2,
-                    "product_id": 2,
+                    "product_id": 1,
                     "parent_id": "",
-                    "stars": 5,
+                    "stars": 1,
                     "is_anonymous": false,
                     "pic_info": [
-                        //"18a6dcdd0f486579.jpg"
+                        "18a9e514717c66e1.png"
                     ],
-                    "created_at": "2026-04-16T14:32:37.509Z",
+                    "created_at": "2026-04-26T11:36:55.796Z",
                     "likes": 0,
                     "current_user_liked": false,
                     "is_pinned": false,
                     "status": "approved",
-                    "auto_flag": "score_inferred"
                 }
             }, 
            /* {
