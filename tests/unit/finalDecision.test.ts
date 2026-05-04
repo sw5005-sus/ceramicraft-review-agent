@@ -27,12 +27,12 @@ vi.mock('../../src/utils/llmFactory.js', () => ({
 
 describe('Final Decision Node - Business Rules', () => {
     
-    // 每次测试前清空之前的调用记录
+    // Clear previous mock calls before each test
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    // 辅助函数：生成一个“完美”的、理应被 Approved 的假 State
+    // Helper function: Generate a "perfect" mock state that should be Approved
     const getPassingState = (): any => ({
         reasoningLogs: [],
         autoFlag: null,
@@ -49,7 +49,7 @@ describe('Final Decision Node - Business Rules', () => {
         spanRecords: []
     });
 
-    it('✅ 规则 7: 所有条件满足且置信度高时，应该 APPROVED', async () => {
+    it('✅ Rule 7: Should be APPROVED when all conditions are met and confidence is high', async () => {
         const state = getPassingState();
         const result = await finalDecisionNode(state);
         
@@ -57,44 +57,44 @@ describe('Final Decision Node - Business Rules', () => {
         expect(result.isHarmful).toBe(false);
     });
 
-    it('🚫 规则 1 & 2: 如果被 Supervisor 标记或文本不安全，应该 REJECTED', async () => {
+    it('🚫 Rules 1 & 2: Should be REJECTED if flagged by Supervisor or text is unsafe', async () => {
         const state1 = getPassingState();
-        state1.autoFlag = 'supervisor_rejected'; // Supervisor 短路标记
+        state1.autoFlag = 'supervisor_rejected'; // Supervisor short-circuit flag
         const result1 = await finalDecisionNode(state1);
         expect(result1.finalStatus).toBe('rejected');
         expect(result1.isHarmful).toBe(true);
 
         const state2 = getPassingState();
-        state2.isSafe = false; // Text Worker 发现不安全
+        state2.isSafe = false; // Text Worker identified as unsafe
         const result2 = await finalDecisionNode(state2);
         expect(result2.finalStatus).toBe('rejected');
     });
 
-    it('👀 规则 3 & 4: 文本或图片与商品不相关时，应该 HIDDEN', async () => {
+    it('👀 Rules 3 & 4: Should be HIDDEN if text or image is irrelevant to the product', async () => {
         const state = getPassingState();
         state.isProductRelevant = false;
         
         const result = await finalDecisionNode(state);
         expect(result.finalStatus).toBe('hidden');
-        expect(result.autoFlag).toContain('off_topic'); // 检查是否正确打上了标签
+        expect(result.autoFlag).toContain('off_topic'); // Check if the correct flag was applied
     });
 
-    it('🧠 规则 6 特例: 0分补全成功时不应被判为 Mismatch 而被 Hidden', async () => {
-        // 场景 A：普通 Mismatch（比如打5星但狂骂），应该 Hidden
+    it('🧠 Rule 6 Exception: Should not be Hidden for Mismatch if a 0-star rating is successfully imputed', async () => {
+        // Scenario A: Standard Mismatch (e.g., 5 stars but extremely negative text), should be Hidden
         const stateMismatch = getPassingState();
         stateMismatch.isMismatch = true;
         stateMismatch.reviewPayload.stars = 5;
         const resultMismatch = await finalDecisionNode(stateMismatch);
         expect(resultMismatch.finalStatus).toBe('hidden');
 
-        // 场景 B：0星评论，AI 成功补全了 4 星。这应该被 Approved！
+        // Scenario B: 0-star review, AI successfully imputed 4 stars. This should be Approved!
         const stateImputed = getPassingState();
         stateImputed.isMismatch = true; 
-        stateImputed.reviewPayload.stars = 0; // 原始0星
-        stateImputed.inferredScore = 4;       // 补全了分数
+        stateImputed.reviewPayload.stars = 0; // Original 0 stars
+        stateImputed.inferredScore = 4;       // Imputed score
         
         const resultImputed = await finalDecisionNode(stateImputed);
-        expect(resultImputed.finalStatus).toBe('approved'); // 完美！绕过了 Mismatch 规则
+        expect(resultImputed.finalStatus).toBe('approved'); // Perfect! Bypassed the Mismatch rule
         expect(resultImputed.autoFlag).toContain('score_inferred');
     });
 });
